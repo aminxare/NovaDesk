@@ -24,7 +24,7 @@ export const StartMenu = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-14 left-1/2 -translate-x-1/2 w-[640px] h-[720px] bg-[#242424]/95 backdrop-blur-2xl rounded-xl shadow-2xl border border-white/10 z-50 flex flex-col p-8"
+            className="absolute bottom-14 left-1/2 -translate-x-1/2 w-160 h180 bg-[#242424]/95 backdrop-blur-2xl rounded-xl shadow-2xl border border-white/10 z-50 flex flex-col p-8"
           >
             {/* Search Bar */}
             <div className="relative mb-8">

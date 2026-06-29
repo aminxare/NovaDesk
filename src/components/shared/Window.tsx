@@ -50,30 +50,32 @@ export const Window: React.FC<WindowProps> = ({ app }) => {
       >
         {/* Title Bar */}
         <div 
-          className="title-bar h-9 flex items-center justify-between select-none bg-transparent hover:bg-white/5 transition-colors"
+          className={`title-bar h-10 flex items-center justify-between select-none border-b px-3 transition-all ${
+            isFocused ? 'border-white/10 bg-[#111827]/90' : 'border-white/5 bg-[#0f172a]/80'
+          }`}
           onDoubleClick={() => app.isMaximized ? restoreApp(app.id) : maximizeApp(app.id)}
         >
-          <div className="flex items-center gap-3 px-3 text-white text-xs">
-            {app.icon && <span className="w-4 h-4 flex items-center justify-center">{app.icon}</span>}
+          <div className="flex items-center gap-2.5 text-white text-sm font-medium">
+            {app.icon && <span className="w-4 h-4 flex items-center justify-center text-cyan-300">{app.icon}</span>}
             <span>{app.title}</span>
           </div>
 
-          <div className="flex h-full">
+          <div className="flex h-full items-center gap-1">
             <button 
               onClick={() => minimizeApp(app.id)}
-              className="h-full px-4 hover:bg-white/10 text-white transition-colors"
+              className="h-7 w-7 rounded-md hover:bg-white/10 text-white transition-colors"
             >
               <Subtract20Regular />
             </button>
             <button 
               onClick={() => app.isMaximized ? restoreApp(app.id) : maximizeApp(app.id)}
-              className="h-full px-4 hover:bg-white/10 text-white transition-colors"
+              className="h-7 w-7 rounded-md hover:bg-white/10 text-white transition-colors"
             >
               {app.isMaximized ? <SquareMultiple20Regular /> : <Maximize20Regular />}
             </button>
             <button 
               onClick={() => closeApp(app.id)}
-              className="h-full px-4 hover:bg-red-500 hover:text-white text-white transition-colors"
+              className="h-7 w-7 rounded-md hover:bg-red-500 hover:text-white text-white transition-colors"
             >
               <Dismiss20Regular />
             </button>
@@ -81,7 +83,7 @@ export const Window: React.FC<WindowProps> = ({ app }) => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto bg-[#1c1c1c] relative z-10">
+        <div className="flex-1 overflow-auto bg-[#0b1120] relative z-10">
           {app.content}
         </div>
       </motion.div>

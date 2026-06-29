@@ -1,5 +1,6 @@
 import React from 'react';
-import { Settings20Regular, Folder20Regular, Document20Regular } from '@fluentui/react-icons';
+import { Settings20Regular, Folder20Regular, Document20Regular, WindowConsole20Regular } from '@fluentui/react-icons';
+import { TerminalApp } from '../components/apps/TerminalApp';
 
 export interface AppConfig {
   id: string;
@@ -50,5 +51,11 @@ export const appsConfig: AppConfig[] = [
         placeholder="Type here..."
       />
     )
+  },
+  {
+    id: 'terminal',
+    title: 'Terminal',
+    icon: <WindowConsole20Regular />,
+    content: <TerminalApp />
   }
 ];
