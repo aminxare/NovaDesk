@@ -1,5 +1,6 @@
 'use client';
 
+import React, { useEffect, useMemo } from 'react';
 import { useSystemStore } from '../../store/useSystemStore';
 import { Window } from '../shared/Window';
 import { Taskbar } from './Taskbar';
@@ -7,10 +8,37 @@ import { StartMenu } from './StartMenu';
 import { appsConfig } from '../../config/apps.config';
 
 export const Desktop = () => {
-  const { openWindows, openApp } = useSystemStore();
+  const { openWindows, openApp, desktopBackground, loadSavedPersonalization } = useSystemStore();
+
+  useEffect(() => {
+    loadSavedPersonalization();
+  }, [loadSavedPersonalization]);
+
+  const backgroundStyle: React.CSSProperties = useMemo(() => {
+    if (desktopBackground.type === 'image') {
+      return {
+        backgroundImage: `url("${desktopBackground.value}")`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundColor: '#0f172a',
+      };
+    }
+    if (desktopBackground.type === 'gradient') {
+      return {
+        background: desktopBackground.value,
+      };
+    }
+    return {
+      backgroundColor: desktopBackground.value,
+      backgroundImage: 'none',
+    };
+  }, [desktopBackground]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden select-none bg-blue-900 bg-[url('https://images.unsplash.com/photo-1618172193622-ae2d025f4032?ixlib=rb-4.0.3&auto=format&fit=crop&w=3840&q=80')] bg-cover bg-center">
+    <div
+      className="relative w-screen h-screen overflow-hidden select-none transition-all duration-300 ease-in-out"
+      style={backgroundStyle}
+    >
       {/* Desktop Icons */}
       <div className="absolute inset-0 p-2 flex flex-col gap-2 content-start flex-wrap pt-4">
         {appsConfig.map((app) => (

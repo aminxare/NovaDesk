@@ -2,6 +2,7 @@ import React from 'react';
 import { Settings20Regular, Folder20Regular, Document20Regular, GlobeRegular, WindowConsole20Regular } from '@fluentui/react-icons';
 import { TerminalApp } from '../components/apps/TerminalApp';
 import { BrowserApp } from '../components/apps/BrowserApp';
+import { SettingsApp } from '../components/apps/SettingsApp';
 
 export interface AppConfig {
   id: string;
@@ -15,39 +16,7 @@ export const appsConfig: AppConfig[] = [
     id: 'settings',
     title: 'Settings',
     icon: <Settings20Regular />,
-    content: (
-      <div className="h-full flex flex-col gap-4 p-5 text-slate-100 bg-[#0f172a]">
-        <div className="rounded-2xl border border-white/10 bg-[#111827]/80 p-4 shadow-lg shadow-black/20">
-          <h2 className="text-2xl font-semibold mb-1">System settings</h2>
-          <p className="text-sm text-slate-400">Browse and customize your desktop simulator experience.</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { title: 'Display', description: 'Appearance, theme & volume' },
-            { title: 'Network', description: 'Wi-Fi, Bluetooth & proxy' },
-            { title: 'Personalization', description: 'Wallpaper, colors & lock screen' },
-            { title: 'Privacy', description: 'Permissions and security' }
-          ].map((item) => (
-            <div key={item.title} className="rounded-2xl border border-white/10 bg-[#141b2e]/90 p-4 hover:bg-[#1d283f]/90 transition-colors">
-              <div className="text-sm uppercase text-cyan-300 tracking-[0.18em] mb-3">{item.title}</div>
-              <p className="text-sm text-slate-300">{item.description}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-[#111827]/80 p-4 flex flex-col gap-3">
-          <div className="text-sm uppercase text-slate-400">Quick actions</div>
-          <div className="grid grid-cols-3 gap-3">
-            {['Update', 'Accessibility', 'System info'].map((option) => (
-              <button key={option} className="rounded-2xl border border-white/10 bg-white/5 py-3 text-left text-sm text-slate-200 hover:bg-cyan-500/10 transition-colors">
-                {option}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
+    content: <SettingsApp />
   },
   {
     id: 'explorer',

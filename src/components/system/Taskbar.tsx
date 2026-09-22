@@ -7,7 +7,7 @@ import { Wifi420Regular, Speaker220Regular, Battery520Regular } from '@fluentui/
 import { format } from 'date-fns';
 
 export const Taskbar = () => {
-  const { openWindows, toggleStartMenu, isStartMenuOpen, openApp, focusedWindow } = useSystemStore();
+  const { openWindows, toggleStartMenu, isStartMenuOpen, openApp, focusedWindow, taskbarColor } = useSystemStore();
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -16,7 +16,10 @@ export const Taskbar = () => {
   }, []);
 
   return (
-    <div className="absolute bottom-0 left-0 w-full h-12 bg-[#1c1c1c]/90 backdrop-blur-md border-t border-white/10 flex items-center justify-between px-2 z-50">
+    <div
+      className="absolute bottom-0 left-0 w-full h-12 backdrop-blur-md border-t border-white/10 flex items-center justify-between px-2 z-50 transition-colors duration-300"
+      style={{ background: taskbarColor }}
+    >
       <div className="flex-1 flex justify-center items-center gap-1">
         {/* Start Button */}
         <button
