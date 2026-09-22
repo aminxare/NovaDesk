@@ -3,6 +3,7 @@ import { Settings20Regular, Folder20Regular, Document20Regular, GlobeRegular, Wi
 import { TerminalApp } from '../components/apps/TerminalApp';
 import { BrowserApp } from '../components/apps/BrowserApp';
 import { SettingsApp } from '../components/apps/SettingsApp';
+import { NotepadApp } from '../components/apps/NotepadApp';
 
 export interface AppConfig {
   id: string;
@@ -64,23 +65,7 @@ export const appsConfig: AppConfig[] = [
     id: 'notepad',
     title: 'Notepad',
     icon: <Document20Regular />,
-    content: (
-      <div className="h-full flex flex-col bg-[#0f172a] text-slate-100">
-        <div className="border-b border-white/10 px-5 py-4 flex items-center justify-between bg-[#111827]/90">
-          <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Untitled document</div>
-            <div className="text-base font-medium">Notepad</div>
-          </div>
-          <button className="rounded-full border border-white/10 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/15 transition-colors">
-            Save
-          </button>
-        </div>
-        <textarea
-          className="flex-1 w-full resize-none border-none bg-transparent p-5 text-sm leading-6 text-slate-100 outline-none"
-          placeholder="Start writing some notes..."
-        />
-      </div>
-    )
+    content: <NotepadApp />
   },
   {
     id: 'browser',
