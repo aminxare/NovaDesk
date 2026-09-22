@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-typescript';
 import 'prismjs/components/prism-javascript';
@@ -30,6 +30,8 @@ import {
   ChevronDown20Regular,
   Dismiss20Regular,
 } from '@fluentui/react-icons';
+import { useSystemStore } from '../../store/useSystemStore';
+import { fileService } from '../../services/fileService';
 
 const LANGUAGES = [
   { id: 'auto', label: 'Auto Detect' },
@@ -104,12 +106,14 @@ greet("Developer");
 // - Word Wrap toggle
 // - Font zoom controls (In / Out)
 // - Quick search (Ctrl+F)
-// - Local file Open / Save
+// - Local file Open / Save to IndexedDB (Dexie)
 `;
 
 export const NotepadApp: React.FC = () => {
+  const { activeNotepadFile } = useSystemStore();
   const [content, setContent] = useState<string>(INITIAL_TEXT);
   const [fileName, setFileName] = useState<string>('Untitled.ts');
+  const [fileId, setFileId] = useState<string | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
   const [isSaved, setIsSaved] = useState<boolean>(true);
   const [wordWrap, setWordWrap] = useState<boolean>(false);
@@ -117,6 +121,22 @@ export const NotepadApp: React.FC = () => {
   const [fontSize, setFontSize] = useState<number>(14);
   const [copied, setCopied] = useState<boolean>(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string>('auto');
+  const [notification, setNotification] = useState<string | null>(null);
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 2500);
+  };
+
+  useEffect(() => {
+    if (activeNotepadFile) {
+      setContent(activeNotepadFile.content || '');
+      setFileName(activeNotepadFile.name);
+      setFileId(activeNotepadFile.id);
+      setSelectedLanguage('auto');
+      setIsSaved(true);
+    }
+  }, [activeNotepadFile]);
 
   const [cursorPos, setCursorPos] = useState<{ line: number; col: number; selected: number }>({
     line: 1,
@@ -152,52 +172,37 @@ export const NotepadApp: React.FC = () => {
   }, [selectedLanguage, fileName]);
 
   const highlightedHtml = useMemo(() => {
-    if (activeLanguage === 'plaintext' || !Prism.languages[activeLanguage]) {
-      return content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    }
     try {
-      return Prism.highlight(content, Prism.languages[activeLanguage], activeLanguage);
+      const grammar = Prism.languages[activeLanguage] || Prism.languages.plaintext;
+      return Prism.highlight(content, grammar, activeLanguage);
     } catch {
-      return content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+      return content;
     }
   }, [content, activeLanguage]);
 
-  const handleScroll = useCallback(() => {
-    if (gutterRef.current && textareaRef.current) {
-      gutterRef.current.scrollTop = textareaRef.current.scrollTop;
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    const scrollTop = e.currentTarget.scrollTop;
+    const scrollLeft = e.currentTarget.scrollLeft;
+    if (backdropRef.current) {
+      backdropRef.current.scrollTop = scrollTop;
+      backdropRef.current.scrollLeft = scrollLeft;
     }
-    if (backdropRef.current && textareaRef.current) {
-      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
-      backdropRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    if (gutterRef.current) {
+      gutterRef.current.scrollTop = scrollTop;
     }
-  }, []);
+  };
 
-  const updateCursorInfo = useCallback(() => {
-    if (!textareaRef.current) return;
-    const { selectionStart, selectionEnd, value } = textareaRef.current;
-    const textBefore = value.slice(0, selectionStart);
-    const lineIndex = textBefore.split('\n').length;
-    const lastNewline = textBefore.lastIndexOf('\n');
-    const colIndex = selectionStart - lastNewline;
-    const selectedChars = Math.abs(selectionEnd - selectionStart);
+  const updateCursorPosition = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const selectionStart = textarea.selectionStart;
+    const textBeforeCursor = content.substring(0, selectionStart);
+    const lineNum = textBeforeCursor.split('\n').length;
+    const lastNewlineIndex = textBeforeCursor.lastIndexOf('\n');
+    const colNum = selectionStart - (lastNewlineIndex === -1 ? 0 : lastNewlineIndex);
+    const selectedLen = Math.abs(textarea.selectionEnd - textarea.selectionStart);
 
-    setCursorPos({
-      line: lineIndex,
-      col: colIndex,
-      selected: selectedChars,
-    });
-  }, []);
-
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value);
-    setIsSaved(false);
-    updateCursorInfo();
+    setCursorPos({ line: lineNum, col: colNum, selected: selectedLen });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -205,531 +210,304 @@ export const NotepadApp: React.FC = () => {
       e.preventDefault();
       const textarea = textareaRef.current;
       if (!textarea) return;
-
-      const { selectionStart, selectionEnd, value } = textarea;
-      const tabSpace = '  ';
-      const newContent = value.substring(0, selectionStart) + tabSpace + value.substring(selectionEnd);
-
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newContent = content.substring(0, start) + '  ' + content.substring(end);
       setContent(newContent);
       setIsSaved(false);
-
       requestAnimationFrame(() => {
-        textarea.selectionStart = textarea.selectionEnd = selectionStart + tabSpace.length;
-        updateCursorInfo();
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+        updateCursorPosition();
       });
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-      e.preventDefault();
-      handleSave();
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault();
       setIsSearchOpen(true);
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      handleSave();
     }
   };
 
-  const handleNew = () => {
+  const handleSave = async () => {
+    setIsSaved(true);
+    if (fileId) {
+      try {
+        await fileService.updateFileContent(fileId, content);
+        showNotification(`Saved "${fileName}" to Dexie DB`);
+      } catch (err) {
+        console.error('Failed to save file:', err);
+      }
+    } else {
+      showNotification(`Saved "${fileName}" successfully`);
+    }
+  };
+
+  const handleNewFile = () => {
+    if (!isSaved && !window.confirm('You have unsaved changes. Create new file anyway?')) return;
     setContent('');
     setFileName('Untitled.txt');
+    setFileId(null);
     setIsSaved(true);
-    textareaRef.current?.focus();
   };
 
-  const handleOpenFileClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOpenFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      setContent(text || '');
-      setFileName(file.name);
-      setIsSaved(true);
-      if (textareaRef.current) {
-        textareaRef.current.selectionStart = 0;
-        textareaRef.current.selectionEnd = 0;
+      if (text !== undefined) {
+        setContent(text);
+        setFileName(file.name);
+        setFileId(null);
+        setIsSaved(true);
+        showNotification(`Opened "${file.name}"`);
       }
-      updateCursorInfo();
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
-  const handleSave = () => {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName.trim() || 'Untitled.txt';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    setIsSaved(true);
-  };
-
-  const handleCopyAll = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      if (textareaRef.current) {
-        textareaRef.current.select();
-        document.execCommand('copy');
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
-    }
-  };
-
-  const handleClear = () => {
-    setContent('');
-    setIsSaved(false);
-    textareaRef.current?.focus();
-  };
-
-  const handleZoomIn = () => {
-    setFontSize((prev) => Math.min(prev + 2, 28));
-  };
-
-  const handleZoomOut = () => {
-    setFontSize((prev) => Math.max(prev - 2, 10));
-  };
-
-  const matchIndices = useMemo(() => {
-    if (!searchQuery) return [];
-    const indices: number[] = [];
-    const lowerContent = content.toLowerCase();
-    const lowerQuery = searchQuery.toLowerCase();
-    let index = lowerContent.indexOf(lowerQuery);
-
-    while (index !== -1) {
-      indices.push(index);
-      index = lowerContent.indexOf(lowerQuery, index + 1);
-    }
-    return indices;
-  }, [searchQuery, content]);
-
-  const highlightMatch = useCallback(
-    (startIndex: number, length: number) => {
-      if (!textareaRef.current) return;
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(startIndex, startIndex + length);
-      updateCursorInfo();
-    },
-    [updateCursorInfo]
-  );
-
-  const handleNextMatch = () => {
-    if (matchIndices.length === 0) return;
-    const nextIdx = (currentMatchIndex + 1) % matchIndices.length;
-    setCurrentMatchIndex(nextIdx);
-    highlightMatch(matchIndices[nextIdx], searchQuery.length);
-  };
-
-  const handlePrevMatch = () => {
-    if (matchIndices.length === 0) return;
-    const prevIdx = (currentMatchIndex - 1 + matchIndices.length) % matchIndices.length;
-    setCurrentMatchIndex(prevIdx);
-    highlightMatch(matchIndices[prevIdx], searchQuery.length);
-  };
-
-  const handleSearchChange = (query: string) => {
-    setSearchQuery(query);
-    if (!query) {
-      setCurrentMatchIndex(-1);
-      return;
-    }
-    const lowerContent = content.toLowerCase();
-    const lowerQuery = query.toLowerCase();
-    const index = lowerContent.indexOf(lowerQuery);
-    if (index !== -1) {
-      setCurrentMatchIndex(0);
-      highlightMatch(index, query.length);
-    } else {
-      setCurrentMatchIndex(-1);
-    }
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#0b101b] text-slate-100 select-none">
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        accept=".txt,.md,.js,.ts,.tsx,.jsx,.json,.html,.css,.scss,.py,.sh,.yaml,.yml,.xml,.csv,.sql"
-        onChange={handleFileSelected}
-      />
+    <div className="flex h-full flex-col bg-[#111827] text-slate-100 select-none">
+      {notification && (
+        <div className="absolute top-12 right-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-500/90 px-4 py-2 text-xs font-medium text-white shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+          <Checkmark20Regular className="h-4 w-4" />
+          <span>{notification}</span>
+        </div>
+      )}
 
-      {/* Top Header & Toolbar */}
-      <div className="flex flex-col border-b border-white/10 bg-[#0f172a]/95 backdrop-blur-md">
-        {/* Document Bar */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">
-              <Document20Regular className="h-4 w-4" />
-            </div>
-            <div className="flex items-center gap-2">
-              {isEditingTitle ? (
-                <input
-                  type="text"
-                  value={fileName}
-                  onChange={(e) => setFileName(e.target.value)}
-                  onBlur={() => setIsEditingTitle(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') setIsEditingTitle(false);
-                  }}
-                  autoFocus
-                  className="rounded bg-slate-800/80 px-2 py-0.5 text-xs text-slate-100 font-medium border border-cyan-500/50 outline-none w-48"
-                />
-              ) : (
-                <button
-                  onClick={() => setIsEditingTitle(true)}
-                  title="Click to rename"
-                  className="group flex items-center gap-1.5 text-xs font-medium text-slate-200 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5 transition-colors cursor-pointer"
-                >
-                  <span>{fileName}</span>
-                  <span className="text-[10px] text-slate-500 group-hover:text-slate-400">✎</span>
-                </button>
-              )}
+      {/* Hidden file input */}
+      <input type="file" ref={fileInputRef} onChange={handleOpenFile} className="hidden" />
 
-              <div
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
-                  isSaved
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${isSaved ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}
-                />
-                <span>{isSaved ? 'Saved' : 'Unsaved'}</span>
-              </div>
-            </div>
-          </div>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between border-b border-white/10 bg-[#1f2937]/90 px-3 py-2 text-xs backdrop-blur-md gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={handleNewFile}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/10 transition-colors cursor-pointer"
+            title="New File"
+          >
+            <DocumentAdd20Regular className="h-4 w-4 text-cyan-400" />
+            <span className="hidden sm:inline">New</span>
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/10 transition-colors cursor-pointer"
+            title="Open File"
+          >
+            <FolderOpen20Regular className="h-4 w-4 text-amber-400" />
+            <span className="hidden sm:inline">Open</span>
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/10 transition-colors cursor-pointer"
+            title="Save File (Ctrl+S)"
+          >
+            <Save20Regular className="h-4 w-4 text-emerald-400" />
+            <span className="hidden sm:inline">Save</span>
+          </button>
 
-          <div className="flex items-center gap-1">
+          <div className="h-4 w-[1px] bg-white/10 mx-1" />
+
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-white/10 transition-colors cursor-pointer"
+            title="Copy Text"
+          >
+            {copied ? <Checkmark20Regular className="h-4 w-4 text-emerald-400" /> : <Copy20Regular className="h-4 w-4 text-slate-300" />}
+            <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm('Clear all text?')) {
+                setContent('');
+                setIsSaved(false);
+              }
+            }}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 hover:bg-rose-500/20 text-rose-300 transition-colors cursor-pointer"
+            title="Clear All"
+          >
+            <Delete20Regular className="h-4 w-4" />
+            <span className="hidden sm:inline">Clear</span>
+          </button>
+
+          <div className="h-4 w-[1px] bg-white/10 mx-1" />
+
+          <button
+            onClick={() => {
+              setIsSearchOpen((prev) => !prev);
+              setTimeout(() => searchInputRef.current?.focus(), 50);
+            }}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-colors cursor-pointer ${
+              isSearchOpen ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-white/10'
+            }`}
+            title="Find (Ctrl+F)"
+          >
+            <Search20Regular className="h-4 w-4 text-cyan-400" />
+            <span className="hidden sm:inline">Find</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Language Selector */}
+          <select
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-slate-200 border border-white/10 outline-none cursor-pointer"
+          >
+            {LANGUAGES.map((lang) => (
+              <option key={lang.id} value={lang.id}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+
+          {/* Line Numbers Toggle */}
+          <button
+            onClick={() => setShowLineNumbers((prev) => !prev)}
+            className={`rounded-lg px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
+              showLineNumbers ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-400 hover:bg-white/10'
+            }`}
+            title="Toggle Line Numbers"
+          >
+            Ln
+          </button>
+
+          {/* Word Wrap Toggle */}
+          <button
+            onClick={() => setWordWrap((prev) => !prev)}
+            className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
+              wordWrap ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-400 hover:bg-white/10'
+            }`}
+            title="Toggle Word Wrap"
+          >
+            <TextWrap20Regular className="h-4 w-4" />
+          </button>
+
+          {/* Font Zoom Controls */}
+          <div className="flex items-center bg-slate-900 rounded-lg border border-white/10 px-1">
             <button
-              onClick={handleSave}
-              className="flex items-center gap-1.5 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 px-3 py-1 text-xs font-medium text-cyan-200 hover:text-white shadow-xs transition-all cursor-pointer"
-              title="Save document (Ctrl+S)"
+              onClick={() => setFontSize((f) => Math.max(10, f - 2))}
+              className="p-1 hover:text-white text-slate-400 transition-colors cursor-pointer"
+              title="Zoom Out"
             >
-              <Save20Regular className="h-3.5 w-3.5" />
-              <span>Save</span>
+              <FontDecrease20Regular className="h-4 w-4" />
+            </button>
+            <span className="px-1.5 font-mono text-[11px] text-slate-300">{fontSize}px</span>
+            <button
+              onClick={() => setFontSize((f) => Math.min(28, f + 2))}
+              className="p-1 hover:text-white text-slate-400 transition-colors cursor-pointer"
+              title="Zoom In"
+            >
+              <FontIncrease20Regular className="h-4 w-4" />
             </button>
           </div>
         </div>
-
-        {/* Action Toolbar */}
-        <div className="flex items-center justify-between px-3 py-1.5 text-xs text-slate-300 gap-2 overflow-x-auto">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleNew}
-              className="flex items-center gap-1 rounded px-2 py-1 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-              title="New document"
-            >
-              <DocumentAdd20Regular className="h-4 w-4 text-cyan-400" />
-              <span>New</span>
-            </button>
-
-            <button
-              onClick={handleOpenFileClick}
-              className="flex items-center gap-1 rounded px-2 py-1 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-              title="Open file from computer"
-            >
-              <FolderOpen20Regular className="h-4 w-4 text-amber-400" />
-              <span>Open</span>
-            </button>
-
-            <div className="h-4 w-px bg-white/10 mx-1" />
-
-            {/* Language Selector Dropdown */}
-            <div className="flex items-center gap-1 bg-white/5 rounded px-2 py-1 border border-white/5">
-              <span className="text-slate-400 text-[11px]">Lang:</span>
-              <select
-                value={selectedLanguage}
-                onChange={(e) => setSelectedLanguage(e.target.value)}
-                className="bg-transparent text-xs text-cyan-300 font-medium outline-none cursor-pointer"
-                title="Select syntax highlighting language"
-              >
-                {LANGUAGES.map((lang) => (
-                  <option key={lang.id} value={lang.id} className="bg-slate-900 text-white">
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="h-4 w-px bg-white/10 mx-1" />
-
-            <button
-              onClick={handleCopyAll}
-              className="flex items-center gap-1 rounded px-2 py-1 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-              title="Copy entire document"
-            >
-              {copied ? (
-                <>
-                  <Checkmark20Regular className="h-4 w-4 text-emerald-400" />
-                  <span className="text-emerald-400">Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy20Regular className="h-4 w-4 text-sky-400" />
-                  <span>Copy</span>
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={handleClear}
-              className="flex items-center gap-1 rounded px-2 py-1 hover:bg-red-500/15 hover:text-red-300 text-slate-400 transition-colors cursor-pointer"
-              title="Clear all text"
-            >
-              <Delete20Regular className="h-4 w-4" />
-              <span>Clear</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => {
-                setIsSearchOpen(!isSearchOpen);
-                if (!isSearchOpen) {
-                  requestAnimationFrame(() => searchInputRef.current?.focus());
-                }
-              }}
-              className={`flex items-center gap-1 rounded px-2 py-1 transition-colors cursor-pointer ${
-                isSearchOpen ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-white/10 hover:text-white'
-              }`}
-              title="Find in document (Ctrl+F)"
-            >
-              <Search20Regular className="h-4 w-4" />
-              <span>Find</span>
-            </button>
-
-            <div className="h-4 w-px bg-white/10 mx-1" />
-
-            <button
-              onClick={() => setShowLineNumbers(!showLineNumbers)}
-              className={`flex items-center gap-1 rounded px-2 py-1 transition-colors cursor-pointer ${
-                showLineNumbers ? 'bg-white/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5'
-              }`}
-              title="Toggle Line Numbers"
-            >
-              <span className="font-mono text-[11px] font-bold">123</span>
-              <span className="hidden sm:inline">Lines</span>
-            </button>
-
-            <button
-              onClick={() => setWordWrap(!wordWrap)}
-              className={`flex items-center gap-1 rounded px-2 py-1 transition-colors cursor-pointer ${
-                wordWrap ? 'bg-white/10 text-cyan-300' : 'text-slate-400 hover:bg-white/5'
-              }`}
-              title="Toggle Word Wrap"
-            >
-              <TextWrap20Regular className="h-4 w-4" />
-              <span className="hidden sm:inline">Wrap</span>
-            </button>
-
-            <div className="h-4 w-px bg-white/10 mx-1" />
-
-            <div className="flex items-center gap-0.5 bg-white/5 rounded-md px-1 py-0.5 border border-white/5">
-              <button
-                onClick={handleZoomOut}
-                className="rounded p-1 text-slate-300 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-                title="Decrease font size"
-              >
-                <FontDecrease20Regular className="h-3.5 w-3.5" />
-              </button>
-              <span className="px-1.5 text-[11px] font-mono text-slate-300 min-w-[28px] text-center">
-                {fontSize}px
-              </span>
-              <button
-                onClick={handleZoomIn}
-                className="rounded p-1 text-slate-300 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
-                title="Increase font size"
-              >
-                <FontIncrease20Regular className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Find / Search Bar */}
-        {isSearchOpen && (
-          <div className="flex items-center justify-between px-3 py-1.5 bg-[#1e293b]/90 border-t border-white/10">
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <Search20Regular className="h-4 w-4 text-cyan-400 shrink-0" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (e.shiftKey) handlePrevMatch();
-                    else handleNextMatch();
-                  } else if (e.key === 'Escape') {
-                    setIsSearchOpen(false);
-                    textareaRef.current?.focus();
-                  }
-                }}
-                placeholder="Find text..."
-                className="w-full bg-slate-900/90 text-xs text-white placeholder-slate-500 rounded px-2.5 py-1 border border-cyan-500/30 focus:border-cyan-400 outline-none"
-              />
-              <span className="text-[11px] text-slate-400 whitespace-nowrap">
-                {matchIndices.length > 0
-                  ? `${currentMatchIndex + 1} of ${matchIndices.length}`
-                  : searchQuery
-                  ? 'No match'
-                  : ''}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handlePrevMatch}
-                disabled={matchIndices.length === 0}
-                className="p-1 rounded hover:bg-white/10 disabled:opacity-30 text-slate-200 transition-colors cursor-pointer"
-                title="Previous match (Shift+Enter)"
-              >
-                <ChevronUp20Regular className="h-4 w-4" />
-              </button>
-              <button
-                onClick={handleNextMatch}
-                disabled={matchIndices.length === 0}
-                className="p-1 rounded hover:bg-white/10 disabled:opacity-30 text-slate-200 transition-colors cursor-pointer"
-                title="Next match (Enter)"
-              >
-                <ChevronDown20Regular className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => {
-                  setIsSearchOpen(false);
-                  textareaRef.current?.focus();
-                }}
-                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer ml-1"
-                title="Close search"
-              >
-                <Dismiss20Regular className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Editor Main Area (Line numbers gutter + Backdrop + Textarea) */}
-      <div className="relative flex-1 flex overflow-hidden bg-[#070b14]">
-        {/* Line Numbers Gutter */}
+      {/* Find Bar */}
+      {isSearchOpen && (
+        <div className="flex items-center gap-2 border-b border-white/10 bg-[#1e293b]/95 px-4 py-2 text-xs">
+          <Search20Regular className="h-4 w-4 text-cyan-400" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Find in text..."
+            className="flex-1 bg-slate-900 px-3 py-1 rounded-lg border border-white/10 text-white outline-none"
+          />
+          <button
+            onClick={() => setIsSearchOpen(false)}
+            className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white cursor-pointer"
+          >
+            <Dismiss20Regular className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Editor Main Body */}
+      <div className="relative flex flex-1 overflow-hidden font-mono" style={{ fontSize: `${fontSize}px` }}>
+        {/* Line Number Gutter */}
         {showLineNumbers && (
           <div
             ref={gutterRef}
-            aria-hidden="true"
-            className="shrink-0 overflow-hidden bg-[#0b101c] border-r border-white/10 select-none py-3 z-20"
-            style={{
-              width: `${Math.max(String(totalLines).length * 10 + 26, 44)}px`,
-            }}
+            className="select-none overflow-hidden bg-[#0d1322] border-r border-white/10 text-right font-mono text-slate-500 py-4 px-3 shrink-0"
+            style={{ lineHeight: `${lineHeight}px`, minWidth: '50px' }}
           >
-            {Array.from({ length: totalLines }).map((_, i) => {
-              const lineNum = i + 1;
-              const isCurrent = cursorPos.line === lineNum;
+            {Array.from({ length: totalLines }).map((_, idx) => {
+              const lineNo = idx + 1;
+              const isActive = lineNo === cursorPos.line;
               return (
-                <div
-                  key={lineNum}
-                  style={{
-                    height: `${lineHeight}px`,
-                    lineHeight: `${lineHeight}px`,
-                    fontSize: `${fontSize}px`,
-                  }}
-                  className={`text-right pr-3 font-mono font-medium transition-colors ${
-                    isCurrent
-                      ? 'text-cyan-400 font-bold bg-cyan-500/15 border-r-2 border-cyan-400'
-                      : 'text-slate-600 hover:text-slate-400'
-                  }`}
-                >
-                  {lineNum}
+                <div key={idx} className={isActive ? 'text-cyan-400 font-bold' : ''}>
+                  {lineNo}
                 </div>
               );
             })}
           </div>
         )}
 
-        {/* Text Area and Syntax Highlighting Backdrop Container */}
-        <div className="relative flex-1 h-full overflow-hidden">
+        {/* Editor Container (Backdrop + Textarea) */}
+        <div className="relative flex-1 overflow-hidden bg-[#111827]">
           {/* Syntax Highlighted Backdrop */}
           <pre
             ref={backdropRef}
             aria-hidden="true"
-            style={{
-              fontSize: `${fontSize}px`,
-              lineHeight: `${lineHeight}px`,
-              whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
-              tabSize: 2,
-            }}
-            className="absolute inset-0 m-0 py-3 px-4 font-mono text-slate-100 pointer-events-none overflow-auto z-0"
-            dangerouslySetInnerHTML={{ __html: highlightedHtml + '\n' }}
+            className={`pointer-events-none absolute inset-0 m-0 overflow-hidden p-4 font-mono whitespace-pre-wrap break-all ${
+              wordWrap ? '' : 'whitespace-pre overflow-x-auto'
+            }`}
+            style={{ lineHeight: `${lineHeight}px`, tabSize: 2 }}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
 
-          {/* Interactive Transparent Textarea */}
+          {/* Transparent Editable Textarea */}
           <textarea
             ref={textareaRef}
             value={content}
-            onChange={handleContentChange}
-            onKeyDown={handleKeyDown}
-            onScroll={handleScroll}
-            onClick={updateCursorInfo}
-            onKeyUp={updateCursorInfo}
-            onSelect={updateCursorInfo}
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            placeholder="Start typing your notes here..."
-            style={{
-              fontSize: `${fontSize}px`,
-              lineHeight: `${lineHeight}px`,
-              whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
-              tabSize: 2,
-              color: 'transparent',
-              caretColor: '#38bdf8',
+            onChange={(e) => {
+              setContent(e.target.value);
+              setIsSaved(false);
             }}
-            className="absolute inset-0 w-full h-full resize-none border-none bg-transparent py-3 px-4 font-mono outline-none selection:bg-cyan-500/30 overflow-auto z-10"
+            onScroll={handleScroll}
+            onSelect={updateCursorPosition}
+            onKeyUp={updateCursorPosition}
+            onClick={updateCursorPosition}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+            placeholder="Start typing or paste code here..."
+            className={`absolute inset-0 m-0 resize-none bg-transparent p-4 font-mono text-transparent caret-cyan-400 outline-none whitespace-pre-wrap break-all ${
+              wordWrap ? '' : 'whitespace-pre overflow-x-auto'
+            }`}
+            style={{ lineHeight: `${lineHeight}px`, tabSize: 2 }}
           />
         </div>
       </div>
 
-      {/* Bottom Status Bar */}
-      <div className="flex items-center justify-between border-t border-white/10 bg-[#0d1424] px-4 py-1.5 text-[11px] font-mono text-slate-400 select-none">
+      {/* Status Bar */}
+      <div className="flex items-center justify-between border-t border-white/10 bg-[#0d1322] px-4 py-1.5 font-mono text-[11px] text-slate-400 select-none">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-slate-300">
-            <span className="text-cyan-400 font-semibold">Ln {cursorPos.line}</span>,
-            <span className="text-cyan-400 font-semibold">Col {cursorPos.col}</span>
-            {cursorPos.selected > 0 && (
-              <span className="ml-1 text-slate-500">({cursorPos.selected} selected)</span>
-            )}
-          </div>
-          <div className="hidden sm:flex items-center gap-3 text-slate-400">
-            <span>{totalLines} lines</span>
-            <span>•</span>
-            <span>{wordCount} words</span>
-            <span>•</span>
-            <span>{charCount} chars</span>
-            <span>•</span>
-            <span className="text-cyan-300 capitalize">Lang: {activeLanguage}</span>
-          </div>
+          <span>
+            Ln {cursorPos.line}, Col {cursorPos.col}
+          </span>
+          {cursorPos.selected > 0 && <span>({cursorPos.selected} selected)</span>}
+          <span>{wordCount} words</span>
+          <span>{charCount} chars</span>
         </div>
-
-        <div className="flex items-center gap-4 text-slate-400">
-          <span className="hidden md:inline">Zoom: {Math.round((fontSize / 14) * 100)}%</span>
-          <span className="hidden sm:inline">UTF-8</span>
-          <span className="rounded bg-white/5 px-2 py-0.5 text-slate-300">Plain Text</span>
+        <div className="flex items-center gap-4">
+          <span className="text-cyan-400 uppercase">{activeLanguage}</span>
+          <span>{isSaved ? 'Saved (Dexie)' : 'Unsaved'}</span>
         </div>
       </div>
     </div>

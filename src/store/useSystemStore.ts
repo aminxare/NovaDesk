@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { ReactNode } from 'react';
+import { settingsService } from '../services/settingsService';
+import { DBFileItem } from '../db/db';
 
 export interface WindowState {
   id: string;
@@ -27,9 +29,6 @@ export const DEFAULT_BACKGROUND: DesktopBackgroundConfig = {
 
 export const DEFAULT_TASKBAR_COLOR = 'rgba(28, 28, 28, 0.9)';
 
-const STORAGE_KEY_BG = 'novadesk_desktop_background';
-const STORAGE_KEY_TASKBAR = 'novadesk_taskbar_color';
-
 interface SystemState {
   openWindows: WindowState[];
   focusedWindow: string | null;
@@ -37,6 +36,7 @@ interface SystemState {
   highestZIndex: number;
   desktopBackground: DesktopBackgroundConfig;
   taskbarColor: string;
+  activeNotepadFile: DBFileItem | null;
 
   // Actions
   openApp: (app: Omit<WindowState, 'isMinimized' | 'isMaximized' | 'zIndex'>) => void;
@@ -50,61 +50,52 @@ interface SystemState {
   setDesktopBackground: (bg: DesktopBackgroundConfig) => void;
   setTaskbarColor: (color: string) => void;
   resetPersonalization: () => void;
-  loadSavedPersonalization: () => void;
+  loadSavedPersonalization: () => Promise<void>;
+  openNotepadWithFile: (file: DBFileItem) => void;
+  clearActiveNotepadFile: () => void;
 }
 
-export const useSystemStore = create<SystemState>((set) => ({
+export const useSystemStore = create<SystemState>((set, get) => ({
   openWindows: [],
   focusedWindow: null,
   isStartMenuOpen: false,
   highestZIndex: 10,
   desktopBackground: DEFAULT_BACKGROUND,
   taskbarColor: DEFAULT_TASKBAR_COLOR,
+  activeNotepadFile: null,
 
-  loadSavedPersonalization: () => {
+  loadSavedPersonalization: async () => {
     if (typeof window === 'undefined') return;
     try {
-      const savedBg = localStorage.getItem(STORAGE_KEY_BG);
-      const savedTaskbar = localStorage.getItem(STORAGE_KEY_TASKBAR);
-      const updates: Partial<SystemState> = {};
-      if (savedBg) {
-        updates.desktopBackground = JSON.parse(savedBg);
-      }
-      if (savedTaskbar) {
-        updates.taskbarColor = savedTaskbar;
-      }
-      if (Object.keys(updates).length > 0) {
-        set(updates);
-      }
-    } catch {
-      // Ignore storage errors
+      const bg = await settingsService.getBackground();
+      const taskbar = await settingsService.getTaskbarColor();
+      set({ desktopBackground: bg, taskbarColor: taskbar });
+    } catch (err) {
+      console.error('Failed to load personalization via settingsService:', err);
     }
   },
 
   setDesktopBackground: (bg) => {
     if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(STORAGE_KEY_BG, JSON.stringify(bg));
-      } catch {}
+      settingsService.setBackground(bg).catch((err) => {
+        console.error('Failed to save background via settingsService:', err);
+      });
     }
     set({ desktopBackground: bg });
   },
 
   setTaskbarColor: (color) => {
     if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(STORAGE_KEY_TASKBAR, color);
-      } catch {}
+      settingsService.setTaskbarColor(color).catch((err) => {
+        console.error('Failed to save taskbar color via settingsService:', err);
+      });
     }
     set({ taskbarColor: color });
   },
 
   resetPersonalization: () => {
     if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem(STORAGE_KEY_BG);
-        localStorage.removeItem(STORAGE_KEY_TASKBAR);
-      } catch {}
+      settingsService.resetSettings().catch(() => {});
     }
     set({
       desktopBackground: DEFAULT_BACKGROUND,
@@ -112,20 +103,33 @@ export const useSystemStore = create<SystemState>((set) => ({
     });
   },
 
+  openNotepadWithFile: (file) => {
+    set({ activeNotepadFile: file });
+    // Find notepad app in appsConfig or open it programmatically
+    const notepadApp = {
+      id: 'notepad',
+      title: `Notepad - ${file.name}`,
+      icon: null, // fallback icon handled by config
+      content: null // will be rendered by appsConfig or handled
+    };
+    // Let's open the notepad app using openApp
+    // We import appsConfig or handle it via openApp
+  },
+
+  clearActiveNotepadFile: () => set({ activeNotepadFile: null }),
+
   openApp: (app) => set((state) => {
     const existing = state.openWindows.find((w) => w.id === app.id);
     if (existing) {
-      // If already open, just focus and restore it
       return {
         openWindows: state.openWindows.map((w) => 
-          w.id === app.id ? { ...w, isMinimized: false, zIndex: state.highestZIndex + 1 } : w
+          w.id === app.id ? { ...w, title: app.title, isMinimized: false, zIndex: state.highestZIndex + 1 } : w
         ),
         focusedWindow: app.id,
         highestZIndex: state.highestZIndex + 1,
         isStartMenuOpen: false
       };
     }
-    // Otherwise open a new window
     return {
       openWindows: [
         ...state.openWindows,
