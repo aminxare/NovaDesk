@@ -38,6 +38,10 @@ export class FileService {
     return await db.files.toArray();
   }
 
+  async getFileById(id: string): Promise<DBFileItem | undefined> {
+    return await db.files.get(id);
+  }
+
   async getFilesByParent(parentId: string | null): Promise<DBFileItem[]> {
     return await db.files.where('parentId').equals(parentId || '').toArray();
   }

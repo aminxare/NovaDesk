@@ -21,9 +21,12 @@ import { fileService } from '../../services/fileService';
 import { ContextMenu, ContextMenuItem } from '../shared/ContextMenu';
 import { useSystemStore } from '../../store/useSystemStore';
 import { appsConfig } from '../../config/apps.config';
+import { useAppDispatch } from '../../store/hooks';
+import { setOpenNoticeFile } from '../../store/notepadSlice';
 
 export const ExplorerApp: React.FC = () => {
-  const { openNotepadWithFile, openApp } = useSystemStore();
+  const dispatch = useAppDispatch();
+  const { openApp } = useSystemStore();
   const [fileItems, setFileItems] = useState<DBFileItem[]>([]);
   const [currentPath, setCurrentPath] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -76,12 +79,12 @@ export const ExplorerApp: React.FC = () => {
 
   const handleOpenFile = (item: DBFileItem) => {
     if (item.type === 'file') {
-      openNotepadWithFile(item);
+      dispatch(setOpenNoticeFile(item));
       const notepadConfig = appsConfig.find((a) => a.id === 'notepad');
       if (notepadConfig) {
         openApp({ ...notepadConfig, title: `Notepad - ${item.name}` });
       }
-      showNotification(`Opening "${item.name}" in Notepad`);
+      showNotification(`Opening "${item.name}" in Notepad (Redux state loaded)`);
     } else {
       handleItemClick(item);
     }
@@ -426,7 +429,7 @@ export const ExplorerApp: React.FC = () => {
 
               <div>
                 <h2 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-3">
-                  Recent Files (Double click to open in Notepad)
+                  Recent Files (Double click to open in Notepad via Redux)
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {fileItems
@@ -574,7 +577,7 @@ export const ExplorerApp: React.FC = () => {
         <div>
           {displayedItems.length} items • Right-click for context menu
         </div>
-        <div>NovaDesk File Service Architecture</div>
+        <div>Redux Toolkit + Dexie.js Architecture</div>
       </div>
     </div>
   );
