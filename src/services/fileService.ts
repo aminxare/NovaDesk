@@ -70,7 +70,7 @@ export class FileService {
       id: `file-${Date.now()}`,
       name,
       type: 'file',
-      parentId: parentId || 'documents',
+      parentId,
       size: `${Math.max(1, Math.round(content.length / 1024))} KB`,
       date: new Date().toISOString().replace('T', ' ').slice(0, 16),
       extension,
